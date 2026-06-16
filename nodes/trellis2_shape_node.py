@@ -85,7 +85,6 @@ class Trellis2ShapeNode:
                     "INT",
                     {"default": 1024, "min": 512, "max": 2048, "step": 512},
                 ),
-                "no_texture": ("BOOLEAN", {"default": False}),
                 "use_rembg": ("BOOLEAN", {"default": False}),
             },
         }
@@ -97,7 +96,6 @@ class Trellis2ShapeNode:
         seed,
         steps,
         texture_size,
-        no_texture,
         use_rembg,
     ):
         if image.ndim == 4:
@@ -146,12 +144,6 @@ class Trellis2ShapeNode:
 
         glb_path = _next_output_path(filename_prefix, extension=".glb")
         glb_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if no_texture:
-            import trimesh
-            tm = trimesh.Trimesh(vertices=verts, faces=faces)
-            tm.export(str(glb_path))
-            return (str(glb_path),)
 
         to_glb(mesh, str(glb_path), texture_size=texture_size)
         return (str(glb_path),)
