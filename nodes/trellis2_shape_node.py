@@ -19,6 +19,12 @@ MODEL_DIR = os.path.join(WEIGHTS_DIR, MODEL_REPO.replace("/", "--"))
 
 filename_prefix = "trellis2"
 
+PIPELINE_TYPE_MAP = {
+    "Fast (512px)": "512",
+    "High Quality (1024px)": "1024",
+    "Refined (1024px)": "1024_cascade",
+}
+
 
 def _get_output_path() -> str:
     return folder_paths.get_output_directory()
@@ -70,12 +76,8 @@ class Trellis2ShapeNode:
             "required": {
                 "image": ("IMAGE",),
                 "pipeline_type": (
-                    [
-                        ("Fast (512px)", "512"),
-                        ("High Quality (1024px)", "1024"),
-                        ("Refined (1024px)", "1024_cascade"),
-                    ],
-                    {"default": "512"},
+                    ["Fast (512px)", "High Quality (1024px)", "Refined (1024px)"],
+                    {"default": "Fast (512px)"},
                 ),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 999999999}),
                 "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
@@ -133,7 +135,7 @@ class Trellis2ShapeNode:
             sparse_structure_sampler_params={"steps": steps},
             shape_slat_sampler_params={"steps": steps},
             tex_slat_sampler_params={"steps": steps},
-            pipeline_type=pipeline_type,
+            pipeline_type=PIPELINE_TYPE_MAP[pipeline_type],
             preprocess_image=use_rembg,
         )
 
