@@ -1,0 +1,137 @@
+import os
+import sys
+import time
+import numpy as np
+import torch
+from PIL import Image
+from pathlib import Path
+import folder_paths
+
+PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SUBMODULE_DIR = os.path.join(PACKAGE_DIR, "trellis2-apple")
+sys.path.insert(0, SUBMODULE_DIR)
+
+from mlx_backend.pipeline import create_mlx_pipeline, to_glb
+
+WEIGHTS_DIR = os.path.join(PACKAGE_DIR, "weights")
+MODEL_REPO = "microsoft/TRELLIS.2-4B"
+MODEL_DIR = os.path.join(WEIGHTS_DIR, MODEL_REPO.replace("/", "--"))
+
+filename_prefix = "trellis2"
+
+
+def _get_output_path() -> str:
+    return folder_paths.get_output_directory()
+
+
+def _next_output_path(prefix: str, extension: str = ".glb") -> Path:
+    base_dir = Path(_get_output_path())
+    stem = f"{prefix}"
+    counter = 0
+    while True:
+        p = base_dir / f"{stem}_{counter}{extension}" if counter else base_dir / f"{stem}{extension}"
+        if not p.exists():
+            return p
+        counter += 1
+
+
+def _download_weights():
+    if os.path.isdir(MODEL_DIR):
+        return MODEL_DIR
+    from huggingface_hub import snapshot_download
+    os.makedirs(WEIGHTS_DIR, exist_ok=True)
+    print(f"Downloading {MODEL_REPO} to {MODEL_DIR}...")
+    snapshot_download(repo_id=MODEL_REPO, local_dir=MODEL_DIR, local_dir_use_symlinks=False)
+    return MODEL_DIR
+
+
+def _pick_device():
+    try:
+        import mlx.core as mx
+        if mx.metal.is_available():
+            return "mlx"
+    except Exception:
+        pass
+    return "cpu"
+
+
+class Trellis2ShapeNode:
+    CATEGORY = "TRELLIS.2"
+    FUNCTION = "generate_shape"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("glb_path",)
+
+    _pipeline = None
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "pipeline_type": (
+                    "STRING",
+                    {"default": "512", "choices": ["512", "1024", "1024_cascade"]},
+                ),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 999999999}),
+                "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
+                "texture_size": (
+                    "INT",
+                    {"default": 1024, "min": 512, "max": 2048, "step": 512},
+                ),
+                "no_texture": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    def generate_shape(
+        self,
+        image,
+        pipeline_type,
+        seed,
+        steps,
+        texture_size,
+        no_texture,
+    ):
+        if image.ndim == 4:
+            image = image[0]
+        img_array = image.cpu().numpy()
+        if img_array.dtype != np.uint8:
+            img_array = (img_array.clip(0.0, 1.0) * 255.0).round().astype("uint8")
+        pil_image = Image.fromarray(img_array, mode="RGBA" if img_array.shape[-1] == 4 else "RGB")
+
+        # Ensure weights are downloaded
+        weights_path = _download_weights()
+
+        # Load pipeline (reuse cached instance)
+        if self._pipeline is None:
+            self.__class__._pipeline = create_mlx_pipeline(weights_path)
+
+        pipeline = self._pipeline
+
+        # Generate
+        torch.manual_seed(seed)
+        out_mesh = pipeline.run(
+            image=pil_image,
+            seed=seed,
+            sparse_structure_sampler_params={"steps": steps},
+            shape_slat_sampler_params={"steps": steps},
+            tex_slat_sampler_params={"steps": steps},
+            pipeline_type=pipeline_type,
+            preprocess_image=False,
+        )
+
+        mesh = out_mesh[0] if isinstance(out_mesh, list) else out_mesh
+        verts = mesh.vertices
+        faces = mesh.faces
+        print(f"Mesh: {len(verts):,} verts, {len(faces):,} faces")
+
+        glb_path = _next_output_path(filename_prefix, extension=".glb")
+        glb_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if no_texture:
+            import trimesh
+            tm = trimesh.Trimesh(vertices=verts, faces=faces)
+            tm.export(str(glb_path))
+            return (str(glb_path),)
+
+        to_glb(mesh, str(glb_path), texture_size=texture_size)
+        return (str(glb_path),)
