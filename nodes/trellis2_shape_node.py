@@ -135,3 +135,12 @@ class Trellis2ShapeNode:
 
         to_glb(mesh, str(glb_path), texture_size=texture_size)
         return (str(glb_path),)
+
+
+NODE_CLASS_MAPPINGS = {
+    "Trellis2Shape": Trellis2ShapeNode,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "Trellis2Shape": "TRELLIS.2 Image to 3D (MLX)",
+}
