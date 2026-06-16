@@ -70,7 +70,11 @@ class Trellis2ShapeNode:
             "required": {
                 "image": ("IMAGE",),
                 "pipeline_type": (
-                    ["512", "1024", "1024_cascade"],
+                    [
+                        ("Fast (512px)", "512"),
+                        ("High Quality (1024px)", "1024"),
+                        ("Refined (1024px)", "1024_cascade"),
+                    ],
                     {"default": "512"},
                 ),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 999999999}),
