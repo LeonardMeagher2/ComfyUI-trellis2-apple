@@ -148,7 +148,7 @@ class Trellis2ShapeNode:
         glb_path = _next_output_path(filename_prefix, extension=".glb")
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
-        to_glb(mesh, str(glb_path), texture_size=texture_size)
+        to_glb(mesh, str(glb_path), texture_size=texture_size, remesh=True)
         return (str(glb_path),)
 
 
