@@ -155,6 +155,8 @@ class Trellis2ShapeNode:
         glb_path = _next_output_path(filename_prefix, extension=".glb")
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
+        import o_voxel.postprocess as _ov_pp
+        _ov_pp._BACKEND = 'metal'
         to_glb(mesh, str(glb_path), texture_size=texture_size,
                decimation_target=resolution, remesh=remesh)
         return (str(glb_path),)
