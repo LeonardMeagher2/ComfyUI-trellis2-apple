@@ -12,11 +12,6 @@ source ../venv/bin/activate    # or your ComfyUI venv
 bash setup.sh
 ```
 
-Edit `weights/microsoft--TRELLIS.2-4B/pipeline.json` after first run. Replace the two gated model repos:
-
-- `model_name` → `kryveil/dinov3-vitl16-pretrain-lvd1689m`
-- rembg `model_name` → `ZhengPeng7/BiRefNet`
-
 ComfyUI creates its venv at `venv/` or `.venv/` inside its install directory. Activate it before running `setup.sh` so packages install to the right place.
 
-Restart ComfyUI.
+Restart ComfyUI. Model weights download on first use.

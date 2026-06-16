@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import time
 import numpy as np
 import torch
@@ -48,7 +49,31 @@ def _download_weights():
     os.makedirs(WEIGHTS_DIR, exist_ok=True)
     print(f"Downloading {MODEL_REPO} to {MODEL_DIR}...")
     snapshot_download(repo_id=MODEL_REPO, local_dir=MODEL_DIR, local_dir_use_symlinks=False)
+    _patch_pipeline_json(MODEL_DIR)
     return MODEL_DIR
+
+
+def _patch_pipeline_json(weights_path):
+    """Swap gated model repos for public equivalents in pipeline.json."""
+    config_file = os.path.join(weights_path, "pipeline.json")
+    if not os.path.exists(config_file):
+        return
+    with open(config_file) as f:
+        data = json.load(f)
+    cfg = data.get('args', data)
+    patched = False
+    ie = cfg.get('image_cond_model', {})
+    if ie.get('args', {}).get('model_name', '').startswith('facebook/'):
+        ie['args']['model_name'] = 'kryveil/dinov3-vitl16-pretrain-lvd1689m'
+        patched = True
+    rm = cfg.get('rembg_model', {})
+    if rm.get('args', {}).get('model_name', '').startswith('briaai/'):
+        rm['args']['model_name'] = 'ZhengPeng7/BiRefNet'
+        patched = True
+    if patched:
+        with open(config_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        print("Patched pipeline.json: swapped gated model repos")
 
 
 def _pick_device():
