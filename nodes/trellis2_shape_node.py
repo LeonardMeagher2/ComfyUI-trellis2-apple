@@ -83,7 +83,7 @@ class Trellis2ShapeNode:
                 "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
                 "texture_size": (
                     "INT",
-                    {"default": 1024, "min": 512, "max": 2048, "step": 512},
+                    {"default": 1024, "min": 1, "max": 2048, "step": 1},
                 ),
                 "use_rembg": ("BOOLEAN", {"default": False}),
             },
