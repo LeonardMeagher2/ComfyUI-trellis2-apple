@@ -115,7 +115,7 @@ class Trellis2ShapeNode:
             if not use_rembg:
                 import trellis2.pipelines.rembg as _rembg_pkg
                 class _NoopRembg:
-                    pass
+                    def __init__(self, *args, **kwargs): pass
                 _orig = _rembg_pkg.BiRefNet
                 _rembg_pkg.BiRefNet = _NoopRembg
                 self.__class__._pipeline = create_mlx_pipeline(weights_path)
