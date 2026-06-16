@@ -62,6 +62,7 @@ class Trellis2ShapeNode:
     RETURN_NAMES = ("glb_path",)
 
     _pipeline = None
+    _pipeline_rembg = None
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -69,8 +70,8 @@ class Trellis2ShapeNode:
             "required": {
                 "image": ("IMAGE",),
                 "pipeline_type": (
-                    "STRING",
-                    {"default": "512", "choices": ["512", "1024", "1024_cascade"]},
+                    ["512", "1024", "1024_cascade"],
+                    {"default": "512"},
                 ),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 999999999}),
                 "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
@@ -79,6 +80,7 @@ class Trellis2ShapeNode:
                     {"default": 1024, "min": 512, "max": 2048, "step": 512},
                 ),
                 "no_texture": ("BOOLEAN", {"default": False}),
+                "use_rembg": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -90,6 +92,7 @@ class Trellis2ShapeNode:
         steps,
         texture_size,
         no_texture,
+        use_rembg,
     ):
         if image.ndim == 4:
             image = image[0]
@@ -101,9 +104,20 @@ class Trellis2ShapeNode:
         # Ensure weights are downloaded
         weights_path = _download_weights()
 
-        # Load pipeline (reuse cached instance)
-        if self._pipeline is None:
-            self.__class__._pipeline = create_mlx_pipeline(weights_path)
+        # Build pipeline (cached, keyed on use_rembg setting)
+        if self.__class__._pipeline is None or self.__class__._pipeline_rembg != use_rembg:
+            if not use_rembg:
+                import trellis2.pipelines.rembg.BiRefNet as _rembg_mod
+                class _NoopRembg:
+                    def __init__(self, *args, **kwargs): pass
+                _orig = _rembg_mod.BiRefNet
+                _rembg_mod.BiRefNet = _NoopRembg
+                self.__class__._pipeline = create_mlx_pipeline(weights_path)
+                _rembg_mod.BiRefNet = _orig
+                self.__class__._pipeline.rembg_model = None
+            else:
+                self.__class__._pipeline = create_mlx_pipeline(weights_path)
+            self.__class__._pipeline_rembg = use_rembg
 
         pipeline = self._pipeline
 
@@ -116,7 +130,7 @@ class Trellis2ShapeNode:
             shape_slat_sampler_params={"steps": steps},
             tex_slat_sampler_params={"steps": steps},
             pipeline_type=pipeline_type,
-            preprocess_image=False,
+            preprocess_image=use_rembg,
         )
 
         mesh = out_mesh[0] if isinstance(out_mesh, list) else out_mesh
