@@ -85,11 +85,12 @@ class Trellis2ShapeNode:
                     "INT",
                     {"default": 1024, "min": 1, "max": 2048, "step": 1},
                 ),
+                "use_rembg": ("BOOLEAN", {"default": False}),
                 "resolution": (
                     "INT",
-                    {"default": 40000, "min": 1000, "max": 1000000, "step": 1000},
+                    {"default": 200000, "min": 1000, "max": 1000000, "step": 1000},
                 ),
-                "use_rembg": ("BOOLEAN", {"default": False}),
+                "remesh": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -102,6 +103,7 @@ class Trellis2ShapeNode:
         texture_size,
         use_rembg,
         resolution,
+        remesh,
     ):
         if image.ndim == 4:
             image = image[0]
@@ -153,8 +155,8 @@ class Trellis2ShapeNode:
         glb_path = _next_output_path(filename_prefix, extension=".glb")
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
-        to_glb(mesh, str(glb_path), texture_size=texture_size, remesh=True,
-               decimation_target=resolution)
+        to_glb(mesh, str(glb_path), texture_size=texture_size,
+               decimation_target=resolution, remesh=remesh)
         return (str(glb_path),)
 
 
