@@ -12,6 +12,17 @@ source ../venv/bin/activate    # or your ComfyUI venv
 bash setup.sh
 ```
 
-ComfyUI creates its venv at `venv/` or `.venv/` inside its install directory. Activate it before running `setup.sh` so packages install to the right place.
+ComfyUI creates its venv at `venv/` or `.venv/` inside its install directory.
 
-Restart ComfyUI. Model weights download on first use.
+Restart ComfyUI. Model weights download on first run.
+
+## Patch gated models (optional)
+
+Some model repos require HF authentication. Run this script to swap them for public equivalents:
+
+```bash
+source ../venv/bin/activate
+python patch_models.py
+```
+
+A backup is saved as `pipeline.json.bak`. To restore, copy it back.
