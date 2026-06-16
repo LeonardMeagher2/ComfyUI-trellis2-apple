@@ -121,6 +121,9 @@ class Trellis2ShapeNode:
                 self.__class__._pipeline.rembg_model = None
             else:
                 self.__class__._pipeline = create_mlx_pipeline(weights_path)
+                self.__class__._pipeline.rembg_model.model = (
+                    self.__class__._pipeline.rembg_model.model.float()
+                )
             self.__class__._pipeline_rembg = use_rembg
 
         pipeline = self._pipeline
