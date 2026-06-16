@@ -113,13 +113,13 @@ class Trellis2ShapeNode:
         # Build pipeline (cached, keyed on use_rembg setting)
         if self.__class__._pipeline is None or self.__class__._pipeline_rembg != use_rembg:
             if not use_rembg:
-                import trellis2.pipelines.rembg.BiRefNet as _rembg_mod
+                import trellis2.pipelines.rembg as _rembg_pkg
                 class _NoopRembg:
-                    def __init__(self, *args, **kwargs): pass
-                _orig = _rembg_mod.BiRefNet
-                _rembg_mod.BiRefNet = _NoopRembg
+                    pass
+                _orig = _rembg_pkg.BiRefNet
+                _rembg_pkg.BiRefNet = _NoopRembg
                 self.__class__._pipeline = create_mlx_pipeline(weights_path)
-                _rembg_mod.BiRefNet = _orig
+                _rembg_pkg.BiRefNet = _orig
                 self.__class__._pipeline.rembg_model = None
             else:
                 self.__class__._pipeline = create_mlx_pipeline(weights_path)
