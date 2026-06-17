@@ -102,8 +102,9 @@ def _fix_mesh(mesh):
     t.merge_vertices()
     trimesh.repair.fill_holes(t)
     trimesh.repair.fix_winding(t)
+    trimesh.repair.fill_holes(t, use_fan=True)
     trimesh.repair.fill_holes(t)
-    trimesh.repair.fix_normals(t)
+    trimesh.repair.fix_normals(t, multibody=True)
     device = mesh.vertices.device
     mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
     mesh.faces = torch.from_numpy(t.faces).int().to(device)
@@ -283,7 +284,7 @@ class Trellis2ShapeFastNode:
                 faces=mesh.faces.detach().cpu().numpy(),
                 vertex_colors=colors,
             )
-            trimesh.repair.fix_normals(t)
+            trimesh.repair.fix_normals(t, multibody=True)
             trimesh.repair.fix_inversion(t, multibody=True)
             t.export(str(glb_path))
             print(f"Exported vertex-color GLB: {glb_path}")
