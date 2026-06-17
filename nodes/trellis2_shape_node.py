@@ -99,6 +99,7 @@ def _fix_mesh(mesh):
     f = mesh.faces.detach().cpu().numpy()
     t = trimesh.Trimesh(vertices=v, faces=f)
     t.merge_vertices()
+    trimesh.repair.fix_winding(t)
     device = mesh.vertices.device
     mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
     mesh.faces = torch.from_numpy(t.faces).int().to(device)
