@@ -214,6 +214,14 @@ class Trellis2ShapeNode:
                 print("o-voxel forced to CPU")
 
             try:
+                import trimesh
+                v = mesh.vertices.detach().cpu().numpy()
+                f = mesh.faces.detach().cpu().numpy()
+                t = trimesh.Trimesh(vertices=v, faces=f)
+                trimesh.repair.fix_normals(t)
+                mesh.vertices = torch.from_numpy(t.vertices).float().to(mesh.vertices.device)
+                mesh.faces = torch.from_numpy(t.faces).int().to(mesh.faces.device)
+                del v, f, t
                 to_glb(mesh, str(glb_path), texture_size=texture_size,
                        decimation_target=resolution, remesh=remesh)
             finally:
