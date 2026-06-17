@@ -84,6 +84,7 @@ class Trellis2ShapeNode:
                 ),
                 "use_rembg": ("BOOLEAN", {"default": False}),
                 "cpu_voxelize": ("BOOLEAN", {"default": False}),
+                "fix_mesh": ("BOOLEAN", {"default": True}),
                 "resolution": (
                     "INT",
                     {"default": 200000, "min": 1000, "max": 1000000, "step": 1000},
@@ -101,6 +102,7 @@ class Trellis2ShapeNode:
         texture_size,
         use_rembg,
         cpu_voxelize,
+        fix_mesh,
         resolution,
         remesh,
     ):
@@ -147,6 +149,18 @@ class Trellis2ShapeNode:
         verts = mesh.vertices
         faces = mesh.faces
         print(f"Mesh: {len(verts):,} verts, {len(faces):,} faces")
+
+        if fix_mesh:
+            import trimesh
+            v = verts.detach().cpu().numpy()
+            f = faces.detach().cpu().numpy()
+            t = trimesh.Trimesh(vertices=v, faces=f)
+            t.merge_vertices()
+            t.fix_normals()
+            device = verts.device
+            mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
+            mesh.faces = torch.from_numpy(t.faces).int().to(device)
+            print(f"After fix: {len(t.vertices):,} verts, {len(t.faces):,} faces")
 
         # Free MLX Metal cache before GPU‑hungry o‑voxel baking
         import mlx.core as mx
