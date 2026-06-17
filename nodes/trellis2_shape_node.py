@@ -109,6 +109,41 @@ def _fix_mesh(mesh):
     return mesh
 
 
+def _inpaint_query_attrs(mesh, vertices):
+    """Sample vertex attrs with distance-transform inpainting of empty voxels."""
+    import numpy as np
+    from scipy.ndimage import distance_transform_edt
+    import torch.nn.functional as F
+
+    C = mesh.attrs.shape[-1]
+    D, H, W = mesh.voxel_shape[2:]
+
+    dense = torch.zeros(1, C, D, H, W, dtype=mesh.attrs.dtype, device=mesh.attrs.device)
+    mask = torch.zeros(1, 1, D, H, W, dtype=torch.bool, device=mesh.attrs.device)
+    cx, cy, cz = mesh.coords[:, 0].long(), mesh.coords[:, 1].long(), mesh.coords[:, 2].long()
+    dense[0, :, cx, cy, cz] = mesh.attrs.T
+    mask[0, 0, cx, cy, cz] = True
+
+    if not mask.all():
+        m = mask[0, 0].cpu().numpy().astype(bool)
+        vol_np = dense[0].cpu().numpy()
+        _, indices = distance_transform_edt(~m, return_indices=True)
+        nz, ny, nx = indices
+        empty = ~m
+        for c in range(C):
+            vol_np[c][empty] = vol_np[c][nz[empty], ny[empty], nx[empty]]
+        dense[0] = torch.from_numpy(vol_np).to(mesh.attrs.device, dtype=mesh.attrs.dtype)
+
+    grid_pts = ((vertices - mesh.origin) / mesh.voxel_size)
+    grid_pts_norm = torch.stack([
+        grid_pts[:, 2] / (W - 1) * 2 - 1,
+        grid_pts[:, 1] / (H - 1) * 2 - 1,
+        grid_pts[:, 0] / (D - 1) * 2 - 1,
+    ], dim=-1).reshape(1, 1, 1, -1, 3)
+    sampled = F.grid_sample(dense, grid_pts_norm, mode='bilinear', align_corners=True, padding_mode='border')
+    return sampled.reshape(C, -1).T
+
+
 def _cleanup():
     import gc
     import mlx.core as mx
@@ -223,7 +258,7 @@ class Trellis2ShapeFastNode:
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            attrs = mesh.query_vertex_attrs()
+            attrs = _inpaint_query_attrs(mesh, mesh.vertices)
             colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
             colors = (colors * 255).astype(np.uint8)
 
