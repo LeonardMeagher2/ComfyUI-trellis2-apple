@@ -86,6 +86,7 @@ class Trellis2ShapeNode:
                     {"default": 1024, "min": 1, "max": 2048, "step": 1},
                 ),
                 "use_rembg": ("BOOLEAN", {"default": False}),
+                "cpu_voxelize": ("BOOLEAN", {"default": False}),
                 "resolution": (
                     "INT",
                     {"default": 200000, "min": 1000, "max": 1000000, "step": 1000},
@@ -102,6 +103,7 @@ class Trellis2ShapeNode:
         steps,
         texture_size,
         use_rembg,
+        cpu_voxelize,
         resolution,
         remesh,
     ):
@@ -152,13 +154,27 @@ class Trellis2ShapeNode:
         faces = mesh.faces
         print(f"Mesh: {len(verts):,} verts, {len(faces):,} faces")
 
+        # Free MLX Metal cache before GPU‑hungry o‑voxel baking
+        import mlx.core as mx
+        mx.metal.clear_cache()
+        mx.metal.set_cache_limit(256 * 1024 ** 2)  # 256 MB
+
         glb_path = _next_output_path(filename_prefix, extension=".glb")
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
-        import o_voxel.postprocess as _ov_pp
-        _ov_pp._BACKEND = 'metal'
-        to_glb(mesh, str(glb_path), texture_size=texture_size,
-               decimation_target=resolution, remesh=remesh)
+        if cpu_voxelize:
+            import o_voxel.postprocess_cpu as _ov_cpu
+            _orig_get_device = _ov_cpu._get_device
+            _ov_cpu._get_device = lambda: torch.device('cpu')
+            print("o-voxel forced to CPU")
+
+        try:
+            to_glb(mesh, str(glb_path), texture_size=texture_size,
+                   decimation_target=resolution, remesh=remesh)
+        finally:
+            if cpu_voxelize:
+                _ov_cpu._get_device = _orig_get_device
+
         return (str(glb_path),)
 
 
