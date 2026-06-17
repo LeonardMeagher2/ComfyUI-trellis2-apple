@@ -109,32 +109,9 @@ def _fix_mesh(mesh):
     return mesh
 
 
-def _sample_nearest(mesh):
-    """Nearest-neighbor vertex attributes — avoids dark spots from bilinear blending with empty voxels."""
-    C = mesh.attrs.shape[-1]
-    D, H, W = mesh.voxel_shape[2:]
-    dense = torch.zeros(1, C, D, H, W, dtype=mesh.attrs.dtype, device=mesh.attrs.device)
-    cx = mesh.coords[:, 0].long()
-    cy = mesh.coords[:, 1].long()
-    cz = mesh.coords[:, 2].long()
-    dense[0, :, cx, cy, cz] = mesh.attrs.T
-    pts = (mesh.vertices - mesh.origin) / mesh.voxel_size
-    grid = torch.stack([
-        pts[:, 2] / (W - 1) * 2 - 1,
-        pts[:, 1] / (H - 1) * 2 - 1,
-        pts[:, 0] / (D - 1) * 2 - 1,
-    ], dim=-1).reshape(1, 1, 1, -1, 3)
-    sampled = torch.nn.functional.grid_sample(
-        dense, grid, mode='nearest', align_corners=True, padding_mode='border'
-    )
-    return sampled.reshape(C, -1).T
-
-
-def _cleanup(pipeline, mesh):
+def _cleanup():
     import gc
     import mlx.core as mx
-    del pipeline
-    del mesh
     mx.metal.clear_cache()
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
@@ -202,7 +179,8 @@ class Trellis2ShapeNode:
         finally:
             if cpu_voxelize:
                 _ov_cpu._get_device = _orig_get_device
-            _cleanup(pipeline, mesh)
+            del pipeline, mesh
+            _cleanup()
         return (str(glb_path),)
 
 
@@ -245,7 +223,7 @@ class Trellis2ShapeFastNode:
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            attrs = _sample_nearest(mesh)
+            attrs = mesh.query_vertex_attrs()
             colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
             colors = (colors * 255).astype(np.uint8)
 
@@ -266,7 +244,8 @@ class Trellis2ShapeFastNode:
             print(f"Exported vertex-color GLB: {glb_path}")
             del attrs, colors, v, rotated, t
         finally:
-            _cleanup(pipeline, mesh)
+            del pipeline, mesh
+            _cleanup()
         return (str(glb_path),)
 
 
