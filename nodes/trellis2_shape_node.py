@@ -287,6 +287,7 @@ class Trellis2ShapeFastNode:
                 faces=mesh.faces.detach().cpu().numpy(),
                 vertex_colors=colors,
             )
+            trimesh.repair.fix_normals(t)
             t.export(str(glb_path))
             print(f"Exported vertex-color GLB: {glb_path}")
             del attrs, colors, v, rotated, t
