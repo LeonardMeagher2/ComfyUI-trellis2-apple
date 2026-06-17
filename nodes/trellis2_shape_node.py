@@ -98,9 +98,12 @@ def _fix_mesh(mesh):
     v = mesh.vertices.detach().cpu().numpy()
     f = mesh.faces.detach().cpu().numpy()
     t = trimesh.Trimesh(vertices=v, faces=f)
+    t.remove_unreferenced_vertices()
     t.merge_vertices()
+    t.update_faces(t.nondegenerate_faces(t.faces))
     trimesh.repair.fill_holes(t)
     trimesh.repair.fix_winding(t)
+    trimesh.repair.fill_holes(t)
     trimesh.repair.fix_normals(t)
     device = mesh.vertices.device
     mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
