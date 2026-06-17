@@ -67,9 +67,6 @@ class Trellis2ShapeNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("glb_path",)
 
-    _pipeline = None
-    _pipeline_rembg = None
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -107,6 +104,7 @@ class Trellis2ShapeNode:
         resolution,
         remesh,
     ):
+        import gc
         if image.ndim == 4:
             image = image[0]
         img_array = image.cpu().numpy()
@@ -117,25 +115,21 @@ class Trellis2ShapeNode:
         # Ensure weights are downloaded
         weights_path = _download_weights()
 
-        # Build pipeline (cached, keyed on use_rembg setting)
-        if self.__class__._pipeline is None or self.__class__._pipeline_rembg != use_rembg:
-            if not use_rembg:
-                import trellis2.pipelines.rembg as _rembg_pkg
-                class _NoopRembg:
-                    def __init__(self, *args, **kwargs): pass
-                _orig = _rembg_pkg.BiRefNet
-                _rembg_pkg.BiRefNet = _NoopRembg
-                self.__class__._pipeline = create_mlx_pipeline(weights_path)
-                _rembg_pkg.BiRefNet = _orig
-                self.__class__._pipeline.rembg_model = None
-            else:
-                self.__class__._pipeline = create_mlx_pipeline(weights_path)
-                self.__class__._pipeline.rembg_model.model = (
-                    self.__class__._pipeline.rembg_model.model.float()
-                )
-            self.__class__._pipeline_rembg = use_rembg
-
-        pipeline = self._pipeline
+        # Build pipeline (always fresh to free memory after run)
+        if not use_rembg:
+            import trellis2.pipelines.rembg as _rembg_pkg
+            class _NoopRembg:
+                def __init__(self, *args, **kwargs): pass
+            _orig_bi = _rembg_pkg.BiRefNet
+            _rembg_pkg.BiRefNet = _NoopRembg
+            try:
+                pipeline = create_mlx_pipeline(weights_path)
+            finally:
+                _rembg_pkg.BiRefNet = _orig_bi
+            pipeline.rembg_model = None
+        else:
+            pipeline = create_mlx_pipeline(weights_path)
+            pipeline.rembg_model.model = pipeline.rembg_model.model.float()
 
         # Generate
         torch.manual_seed(seed)
@@ -174,8 +168,12 @@ class Trellis2ShapeNode:
         finally:
             if cpu_voxelize:
                 _ov_cpu._get_device = _orig_get_device
-
-        return (str(glb_path),)
+            # Free all MLX / pipeline memory
+            del pipeline
+            del mesh
+            mx.metal.clear_cache()
+            gc.collect()
+            print("Pipeline memory freed")
 
 
 NODE_CLASS_MAPPINGS = {
