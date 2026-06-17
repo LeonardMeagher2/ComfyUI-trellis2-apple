@@ -177,8 +177,7 @@ class Trellis2ShapeNode:
         finally:
             if cpu_voxelize:
                 _ov_cpu._get_device = _orig_get_device
-
-        _cleanup(pipeline, mesh)
+            _cleanup(pipeline, mesh)
         return (str(glb_path),)
 
 
@@ -220,20 +219,21 @@ class Trellis2ShapeFastNode:
         glb_path = _next_output_path("trellis2_fast", extension=".glb")
         glb_path.parent.mkdir(parents=True, exist_ok=True)
 
-        attrs = mesh.query_vertex_attrs()
-        colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
-        colors = (colors * 255).astype(np.uint8)
+        try:
+            attrs = mesh.query_vertex_attrs()
+            colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
+            colors = (colors * 255).astype(np.uint8)
 
-        import trimesh
-        t = trimesh.Trimesh(
-            vertices=mesh.vertices.detach().cpu().numpy(),
-            faces=mesh.faces.detach().cpu().numpy(),
-            vertex_colors=colors,
-        )
-        t.export(str(glb_path))
-        print(f"Exported vertex-color GLB: {glb_path}")
-
-        _cleanup(pipeline, mesh)
+            import trimesh
+            t = trimesh.Trimesh(
+                vertices=mesh.vertices.detach().cpu().numpy(),
+                faces=mesh.faces.detach().cpu().numpy(),
+                vertex_colors=colors,
+            )
+            t.export(str(glb_path))
+            print(f"Exported vertex-color GLB: {glb_path}")
+        finally:
+            _cleanup(pipeline, mesh)
         return (str(glb_path),)
 
 
