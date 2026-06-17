@@ -190,33 +190,37 @@ class Trellis2ShapeNode:
         }
 
     def generate_shape(self, image, pipeline_type, seed, steps, texture_size, use_rembg, cpu_voxelize, fix_mesh, resolution, remesh):
-        weights_path = _download_weights()
-        pil_image = _preprocess_image(image)
-        pipeline = _create_pipeline(use_rembg, weights_path)
-        mesh = _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg)
-
-        if fix_mesh:
-            mesh = _fix_mesh(mesh)
-
-        import mlx.core as mx
-        mx.metal.clear_cache()
-        mx.metal.set_cache_limit(256 * 1024 ** 2)
-
-        glb_path = _next_output_path("trellis2", extension=".glb")
-        glb_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if cpu_voxelize:
-            import o_voxel.postprocess_cpu as _ov_cpu
-            _orig_get_device = _ov_cpu._get_device
-            _ov_cpu._get_device = lambda: torch.device('cpu')
-            print("o-voxel forced to CPU")
-
+        pipeline = None
+        mesh = None
         try:
-            to_glb(mesh, str(glb_path), texture_size=texture_size,
-                   decimation_target=resolution, remesh=remesh)
-        finally:
+            weights_path = _download_weights()
+            pil_image = _preprocess_image(image)
+            pipeline = _create_pipeline(use_rembg, weights_path)
+            mesh = _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg)
+
+            if fix_mesh:
+                mesh = _fix_mesh(mesh)
+
+            import mlx.core as mx
+            mx.metal.clear_cache()
+            mx.metal.set_cache_limit(256 * 1024 ** 2)
+
+            glb_path = _next_output_path("trellis2", extension=".glb")
+            glb_path.parent.mkdir(parents=True, exist_ok=True)
+
             if cpu_voxelize:
-                _ov_cpu._get_device = _orig_get_device
+                import o_voxel.postprocess_cpu as _ov_cpu
+                _orig_get_device = _ov_cpu._get_device
+                _ov_cpu._get_device = lambda: torch.device('cpu')
+                print("o-voxel forced to CPU")
+
+            try:
+                to_glb(mesh, str(glb_path), texture_size=texture_size,
+                       decimation_target=resolution, remesh=remesh)
+            finally:
+                if cpu_voxelize:
+                    _ov_cpu._get_device = _orig_get_device
+        finally:
             del pipeline, mesh
             _cleanup()
         return (str(glb_path),)
@@ -246,21 +250,23 @@ class Trellis2ShapeFastNode:
         }
 
     def generate_shape(self, image, pipeline_type, seed, steps, use_rembg, cpu_voxelize, fix_mesh):
-        weights_path = _download_weights()
-        pil_image = _preprocess_image(image)
-        pipeline = _create_pipeline(use_rembg, weights_path)
-        mesh = _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg)
-
-        if fix_mesh:
-            mesh = _fix_mesh(mesh)
-
-        import mlx.core as mx
-        mx.metal.clear_cache()
-
-        glb_path = _next_output_path("trellis2_fast", extension=".glb")
-        glb_path.parent.mkdir(parents=True, exist_ok=True)
-
+        pipeline = None
+        mesh = None
         try:
+            weights_path = _download_weights()
+            pil_image = _preprocess_image(image)
+            pipeline = _create_pipeline(use_rembg, weights_path)
+            mesh = _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg)
+
+            if fix_mesh:
+                mesh = _fix_mesh(mesh)
+
+            import mlx.core as mx
+            mx.metal.clear_cache()
+
+            glb_path = _next_output_path("trellis2_fast", extension=".glb")
+            glb_path.parent.mkdir(parents=True, exist_ok=True)
+
             attrs = _inpaint_query_attrs(mesh, mesh.vertices)
             colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
             colors = (colors * 255).astype(np.uint8)
