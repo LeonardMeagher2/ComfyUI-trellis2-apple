@@ -100,6 +100,10 @@ def _fix_mesh(mesh):
     t = trimesh.Trimesh(vertices=v, faces=f)
     t.remove_unreferenced_vertices()
     t.merge_vertices()
+    # Remove degenerate faces without relying on trimesh's nondegenerate_faces
+    # (which has a broadcast bug on some meshes). Manually compute face areas.
+    ok = t.area_faces > 1e-8 if t.area_faces.ndim == 1 else np.ones(len(t.faces), dtype=bool)
+    t.update_faces(ok)
     trimesh.repair.fill_holes(t)
     trimesh.repair.fix_winding(t)
     trimesh.repair.fill_holes(t)
