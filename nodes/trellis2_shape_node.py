@@ -99,7 +99,6 @@ def _fix_mesh(mesh):
     f = mesh.faces.detach().cpu().numpy()
     t = trimesh.Trimesh(vertices=v, faces=f)
     t.merge_vertices()
-    t.fix_normals()
     device = mesh.vertices.device
     mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
     mesh.faces = torch.from_numpy(t.faces).int().to(device)
@@ -113,6 +112,8 @@ def _cleanup(pipeline, mesh):
     del pipeline
     del mesh
     mx.metal.clear_cache()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
     gc.collect()
     print("Pipeline memory freed")
 
@@ -239,6 +240,7 @@ class Trellis2ShapeFastNode:
             )
             t.export(str(glb_path))
             print(f"Exported vertex-color GLB: {glb_path}")
+            del attrs, colors, v, rotated, t
         finally:
             _cleanup(pipeline, mesh)
         return (str(glb_path),)
