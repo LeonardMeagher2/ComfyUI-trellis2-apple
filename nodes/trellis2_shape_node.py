@@ -99,6 +99,7 @@ def _fix_mesh(mesh):
     f = mesh.faces.detach().cpu().numpy()
     t = trimesh.Trimesh(vertices=v, faces=f)
     t.merge_vertices()
+    trimesh.repair.fill_holes(t)
     trimesh.repair.fix_winding(t)
     trimesh.repair.fix_normals(t)
     device = mesh.vertices.device
