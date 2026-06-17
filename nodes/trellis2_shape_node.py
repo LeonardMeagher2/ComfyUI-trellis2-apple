@@ -192,10 +192,117 @@ class Trellis2ShapeNode:
         return (str(glb_path),)
 
 
+class Trellis2ShapeFastNode:
+    CATEGORY = "TRELLIS.2"
+    FUNCTION = "generate_shape"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("glb_path",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "pipeline_type": (
+                    ["Fast (512px)", "High Quality (1024px)", "Refined (1024px)"],
+                    {"default": "Fast (512px)"},
+                ),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 999999999}),
+                "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
+                "use_rembg": ("BOOLEAN", {"default": False}),
+                "cpu_voxelize": ("BOOLEAN", {"default": False}),
+                "fix_mesh": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    def generate_shape(self, image, pipeline_type, seed, steps, use_rembg, cpu_voxelize, fix_mesh):
+        import gc
+        if image.ndim == 4:
+            image = image[0]
+        img_array = image.cpu().numpy()
+        if img_array.dtype != np.uint8:
+            img_array = (img_array.clip(0.0, 1.0) * 255.0).round().astype("uint8")
+        pil_image = Image.fromarray(img_array, mode="RGBA" if img_array.shape[-1] == 4 else "RGB")
+
+        weights_path = _download_weights()
+
+        if not use_rembg:
+            import trellis2.pipelines.rembg as _rembg_pkg
+            class _NoopRembg:
+                def __init__(self, *args, **kwargs): pass
+            _orig_bi = _rembg_pkg.BiRefNet
+            _rembg_pkg.BiRefNet = _NoopRembg
+            try:
+                pipeline = create_mlx_pipeline(weights_path)
+            finally:
+                _rembg_pkg.BiRefNet = _orig_bi
+            pipeline.rembg_model = None
+        else:
+            pipeline = create_mlx_pipeline(weights_path)
+            pipeline.rembg_model.model = pipeline.rembg_model.model.float()
+
+        torch.manual_seed(seed)
+        out_mesh = pipeline.run(
+            image=pil_image,
+            seed=seed,
+            sparse_structure_sampler_params={"steps": steps},
+            shape_slat_sampler_params={"steps": steps},
+            tex_slat_sampler_params={"steps": steps},
+            pipeline_type=PIPELINE_TYPE_MAP[pipeline_type],
+            preprocess_image=use_rembg,
+        )
+
+        mesh = out_mesh[0] if isinstance(out_mesh, list) else out_mesh
+        verts = mesh.vertices
+        faces = mesh.faces
+        print(f"Mesh: {len(verts):,} verts, {len(faces):,} faces")
+
+        if fix_mesh:
+            import trimesh
+            v = verts.detach().cpu().numpy()
+            f = faces.detach().cpu().numpy()
+            t = trimesh.Trimesh(vertices=v, faces=f)
+            t.merge_vertices()
+            t.fix_normals()
+            device = verts.device
+            mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
+            mesh.faces = torch.from_numpy(t.faces).int().to(device)
+            print(f"After fix: {len(t.vertices):,} verts, {len(t.faces):,} faces")
+
+        glb_path = _next_output_path("trellis2_fast", extension=".glb")
+        glb_path.parent.mkdir(parents=True, exist_ok=True)
+
+        import mlx.core as mx
+        mx.metal.clear_cache()
+
+        attrs = mesh.query_vertex_attrs()
+        colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
+        colors = (colors * 255).astype(np.uint8)
+
+        import trimesh
+        t = trimesh.Trimesh(
+            vertices=mesh.vertices.detach().cpu().numpy(),
+            faces=mesh.faces.detach().cpu().numpy(),
+            vertex_colors=colors,
+        )
+        t.export(str(glb_path))
+        print(f"Exported vertex-color GLB: {glb_path}")
+
+        del pipeline
+        del mesh
+        mx.metal.clear_cache()
+        gc.collect()
+        print("Pipeline memory freed")
+
+        return (str(glb_path),)
+
+
 NODE_CLASS_MAPPINGS = {
     "Trellis2Shape": Trellis2ShapeNode,
+    "Trellis2ShapeFast": Trellis2ShapeFastNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Trellis2Shape": "TRELLIS.2 Image to 3D (MLX)",
+    "Trellis2ShapeFast": "TRELLIS.2 Fast (Vertex Color) (MLX)",
 }
