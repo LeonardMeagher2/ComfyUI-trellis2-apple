@@ -175,6 +175,8 @@ class Trellis2ShapeNode:
             gc.collect()
             print("Pipeline memory freed")
 
+        return (str(glb_path),)
+
 
 NODE_CLASS_MAPPINGS = {
     "Trellis2Shape": Trellis2ShapeNode,
