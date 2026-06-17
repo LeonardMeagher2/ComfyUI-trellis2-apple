@@ -95,17 +95,21 @@ def _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg):
 
 def _fix_mesh(mesh):
     import trimesh
+    from comfy.model_management import throw_exception_if_processing_interrupted
     v = mesh.vertices.detach().cpu().numpy()
     f = mesh.faces.detach().cpu().numpy()
+    device = mesh.vertices.device
+    del mesh.vertices, mesh.faces
     t = trimesh.Trimesh(vertices=v, faces=f)
     t.remove_unreferenced_vertices()
+    throw_exception_if_processing_interrupted()
     t.merge_vertices()
+    throw_exception_if_processing_interrupted()
     trimesh.repair.fill_holes(t)
     trimesh.repair.fix_winding(t)
     trimesh.repair.fill_holes(t, use_fan=True)
     trimesh.repair.fill_holes(t)
     trimesh.repair.fix_normals(t, multibody=True)
-    device = mesh.vertices.device
     mesh.vertices = torch.from_numpy(t.vertices).float().to(device)
     mesh.faces = torch.from_numpy(t.faces).int().to(device)
     print(f"After fix: {len(t.vertices):,} verts, {len(t.faces):,} faces")
@@ -114,6 +118,7 @@ def _fix_mesh(mesh):
 
 def _inpaint_query_attrs(mesh, vertices):
     """Sample vertex attrs with distance-transform inpainting of empty voxels."""
+    from comfy.model_management import throw_exception_if_processing_interrupted
     import numpy as np
     from scipy.ndimage import distance_transform_edt
     import torch.nn.functional as F
@@ -128,6 +133,7 @@ def _inpaint_query_attrs(mesh, vertices):
     mask[0, 0, cx, cy, cz] = True
 
     if not mask.all():
+        throw_exception_if_processing_interrupted()
         m = mask[0, 0].cpu().numpy().astype(bool)
         vol_np = dense[0].cpu().numpy()
         _, indices = distance_transform_edt(~m, return_indices=True)
@@ -136,7 +142,9 @@ def _inpaint_query_attrs(mesh, vertices):
         for c in range(C):
             vol_np[c][empty] = vol_np[c][nz[empty], ny[empty], nx[empty]]
         dense[0] = torch.from_numpy(vol_np).to(mesh.attrs.device, dtype=mesh.attrs.dtype)
+        del vol_np, m, indices, nz, ny, nx
 
+    throw_exception_if_processing_interrupted()
     grid_pts = ((vertices - mesh.origin) / mesh.voxel_size)
     grid_pts_norm = torch.stack([
         grid_pts[:, 2] / (W - 1) * 2 - 1,
@@ -144,6 +152,7 @@ def _inpaint_query_attrs(mesh, vertices):
         grid_pts[:, 0] / (D - 1) * 2 - 1,
     ], dim=-1).reshape(1, 1, 1, -1, 3)
     sampled = F.grid_sample(dense, grid_pts_norm, mode='bilinear', align_corners=True, padding_mode='border')
+    del dense, mask, grid_pts, grid_pts_norm
     return sampled.reshape(C, -1).T
 
 
@@ -155,6 +164,46 @@ def _cleanup():
         torch.mps.empty_cache()
     gc.collect()
     print("Pipeline memory freed")
+
+
+def _postprocess_mesh(mesh, fix_mesh, filename_prefix):
+    from comfy.model_management import throw_exception_if_processing_interrupted
+    import numpy as np
+    import trimesh
+    import mlx.core as mx
+
+    throw_exception_if_processing_interrupted()
+    if fix_mesh:
+        mesh = _fix_mesh(mesh)
+
+    throw_exception_if_processing_interrupted()
+    mx.metal.clear_cache()
+    glb_path = _next_output_path(filename_prefix, extension=".glb")
+
+    attrs = _inpaint_query_attrs(mesh, mesh.vertices)
+    colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
+    colors = (colors * 255).astype(np.uint8)
+    del attrs
+    throw_exception_if_processing_interrupted()
+
+    v = mesh.vertices.detach().cpu().numpy()
+    rotated = np.empty_like(v)
+    rotated[:, 0] = v[:, 0]
+    rotated[:, 1] = v[:, 2]
+    rotated[:, 2] = -v[:, 1]
+
+    t = trimesh.Trimesh(
+        vertices=rotated,
+        faces=mesh.faces.detach().cpu().numpy(),
+        vertex_colors=colors,
+    )
+    trimesh.repair.fix_normals(t, multibody=True)
+    trimesh.repair.fix_inversion(t, multibody=True)
+    t.export(str(glb_path))
+    print(f"Exported vertex-color GLB: {glb_path}")
+    del rotated, v, colors, t
+    return glb_path
+
 
 class Trellis2ShapeFastNode:
     CATEGORY = "TRELLIS.2"
@@ -181,46 +230,21 @@ class Trellis2ShapeFastNode:
         }
 
     def generate_shape(self, image, pipeline_type, seed, steps, use_rembg, cpu_voxelize, fix_mesh, filename_prefix):
+        from mlx.core import metal
         pipeline = None
-        mesh = None
         try:
             weights_path = _download_weights()
             pil_image = _preprocess_image(image)
             pipeline = _create_pipeline(use_rembg, weights_path)
             mesh = _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg)
-
-            if fix_mesh:
-                mesh = _fix_mesh(mesh)
-
-            import mlx.core as mx
-            mx.metal.clear_cache()
-
-            glb_path = _next_output_path(filename_prefix, extension=".glb")
-
-            attrs = _inpaint_query_attrs(mesh, mesh.vertices)
-            colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
-            colors = (colors * 255).astype(np.uint8)
-
-            v = mesh.vertices.detach().cpu().numpy()
-            # Z-up (TRELLIS) → Y-up (GLB standard): rotate -90° around X
-            rotated = np.empty_like(v)
-            rotated[:, 0] = v[:, 0]
-            rotated[:, 1] = v[:, 2]
-            rotated[:, 2] = -v[:, 1]
-
-            import trimesh
-            t = trimesh.Trimesh(
-                vertices=rotated,
-                faces=mesh.faces.detach().cpu().numpy(),
-                vertex_colors=colors,
-            )
-            trimesh.repair.fix_normals(t, multibody=True)
-            trimesh.repair.fix_inversion(t, multibody=True)
-            t.export(str(glb_path))
-            print(f"Exported vertex-color GLB: {glb_path}")
-            del attrs, colors, v, rotated, t
         finally:
-            del pipeline, mesh
+            del pipeline
+            metal.clear_cache()
+
+        try:
+            glb_path = _postprocess_mesh(mesh, fix_mesh, filename_prefix)
+        finally:
+            del mesh
             _cleanup()
         return (str(glb_path),)
 
