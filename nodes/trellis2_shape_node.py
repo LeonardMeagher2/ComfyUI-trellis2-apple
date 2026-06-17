@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import numpy as np
 import torch
 from PIL import Image
@@ -11,7 +10,7 @@ PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUBMODULE_DIR = os.path.join(PACKAGE_DIR, "trellis2-apple")
 sys.path.insert(0, SUBMODULE_DIR)
 
-from mlx_backend.pipeline import create_mlx_pipeline, to_glb
+from mlx_backend.pipeline import create_mlx_pipeline
 
 WEIGHTS_DIR = os.path.join(PACKAGE_DIR, "weights")
 MODEL_REPO = "microsoft/TRELLIS.2-4B"
@@ -30,7 +29,8 @@ def _get_output_path() -> str:
 
 
 def _next_output_path(prefix: str, extension: str = ".glb") -> Path:
-    base_dir = Path(_get_output_path())
+    base_dir = Path(_get_output_path()) / "mesh"
+    base_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{prefix}"
     counter = 0
     while True:
@@ -156,76 +156,6 @@ def _cleanup():
     gc.collect()
     print("Pipeline memory freed")
 
-
-class Trellis2ShapeNode:
-    CATEGORY = "TRELLIS.2"
-    FUNCTION = "generate_shape"
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("glb_path",)
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                "pipeline_type": (
-                    ["Fast (512px)", "High Quality (1024px)", "Refined (1024px)"],
-                    {"default": "Fast (512px)"},
-                ),
-                "seed": ("INT", {"default": 42, "min": 0, "max": 999999999}),
-                "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
-                "texture_size": (
-                    "INT",
-                    {"default": 1024, "min": 1, "max": 2048, "step": 1},
-                ),
-                "use_rembg": ("BOOLEAN", {"default": False}),
-                "cpu_voxelize": ("BOOLEAN", {"default": False}),
-                "fix_mesh": ("BOOLEAN", {"default": True}),
-                "resolution": (
-                    "INT",
-                    {"default": 200000, "min": 1000, "max": 1000000, "step": 1000},
-                ),
-                "remesh": ("BOOLEAN", {"default": True}),
-            },
-        }
-
-    def generate_shape(self, image, pipeline_type, seed, steps, texture_size, use_rembg, cpu_voxelize, fix_mesh, resolution, remesh):
-        pipeline = None
-        mesh = None
-        try:
-            weights_path = _download_weights()
-            pil_image = _preprocess_image(image)
-            pipeline = _create_pipeline(use_rembg, weights_path)
-            mesh = _run_pipeline(pipeline, pil_image, seed, steps, pipeline_type, use_rembg)
-
-            if fix_mesh:
-                mesh = _fix_mesh(mesh)
-
-            import mlx.core as mx
-            mx.metal.clear_cache()
-            mx.metal.set_cache_limit(256 * 1024 ** 2)
-
-            glb_path = _next_output_path("trellis2", extension=".glb")
-            glb_path.parent.mkdir(parents=True, exist_ok=True)
-
-            if cpu_voxelize:
-                import o_voxel.postprocess_cpu as _ov_cpu
-                _orig_get_device = _ov_cpu._get_device
-                _ov_cpu._get_device = lambda: torch.device('cpu')
-                print("o-voxel forced to CPU")
-
-            try:
-                to_glb(mesh, str(glb_path), texture_size=texture_size,
-                       decimation_target=resolution, remesh=remesh)
-            finally:
-                if cpu_voxelize:
-                    _ov_cpu._get_device = _orig_get_device
-        finally:
-            del pipeline, mesh
-            _cleanup()
-        return (str(glb_path),)
-
-
 class Trellis2ShapeFastNode:
     CATEGORY = "TRELLIS.2"
     FUNCTION = "generate_shape"
@@ -236,6 +166,7 @@ class Trellis2ShapeFastNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "filename_prefix": ("STRING", {"default": "trellis2"}),
                 "image": ("IMAGE",),
                 "pipeline_type": (
                     ["Fast (512px)", "High Quality (1024px)", "Refined (1024px)"],
@@ -249,7 +180,7 @@ class Trellis2ShapeFastNode:
             },
         }
 
-    def generate_shape(self, image, pipeline_type, seed, steps, use_rembg, cpu_voxelize, fix_mesh):
+    def generate_shape(self, image, pipeline_type, seed, steps, use_rembg, cpu_voxelize, fix_mesh, filename_prefix):
         pipeline = None
         mesh = None
         try:
@@ -264,8 +195,7 @@ class Trellis2ShapeFastNode:
             import mlx.core as mx
             mx.metal.clear_cache()
 
-            glb_path = _next_output_path("trellis2_fast", extension=".glb")
-            glb_path.parent.mkdir(parents=True, exist_ok=True)
+            glb_path = _next_output_path(filename_prefix, extension=".glb")
 
             attrs = _inpaint_query_attrs(mesh, mesh.vertices)
             colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
@@ -296,11 +226,9 @@ class Trellis2ShapeFastNode:
 
 
 NODE_CLASS_MAPPINGS = {
-    "Trellis2Shape": Trellis2ShapeNode,
     "Trellis2ShapeFast": Trellis2ShapeFastNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Trellis2Shape": "TRELLIS.2 Image to 3D (MLX)",
-    "Trellis2ShapeFast": "TRELLIS.2 Fast (Vertex Color) (MLX)",
+    "Trellis2ShapeFast": "TRELLIS.2 Image to 3D (MLX)",
 }
