@@ -224,9 +224,16 @@ class Trellis2ShapeFastNode:
             colors = attrs[:, :3].clamp(0, 1).cpu().numpy()
             colors = (colors * 255).astype(np.uint8)
 
+            v = mesh.vertices.detach().cpu().numpy()
+            # Z-up (TRELLIS) → Y-up (GLB standard): rotate -90° around X
+            rotated = np.empty_like(v)
+            rotated[:, 0] = v[:, 0]
+            rotated[:, 1] = v[:, 2]
+            rotated[:, 2] = -v[:, 1]
+
             import trimesh
             t = trimesh.Trimesh(
-                vertices=mesh.vertices.detach().cpu().numpy(),
+                vertices=rotated,
                 faces=mesh.faces.detach().cpu().numpy(),
                 vertex_colors=colors,
             )
